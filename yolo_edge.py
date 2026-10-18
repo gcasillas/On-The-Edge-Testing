@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Iterable, List, Sequence
 
 
+_SYNTHETIC_CONFIDENCE = 0.55
+
+
 @dataclass
 class SRTBox:
     start_seconds: float
@@ -32,7 +35,7 @@ def _parse_timestamp(timestamp: str) -> float:
     return hours * 3600 + minutes * 60 + seconds + float(millis) / 1000.0
 
 
-def parse_srt_boxes(srt_path: str | Path) -> List[SRTBox]:
+def parse_srt_boxes(srt_path: str | Path, frame_shape: Sequence[int] | None = None) -> List[SRTBox]:
     """Parse an SRT file containing per-frame/segment boxes.
 
     Accepts payloads such as:
@@ -45,6 +48,9 @@ def parse_srt_boxes(srt_path: str | Path) -> List[SRTBox]:
 
     blocks = re.split(r"\n\s*\n", text.strip())
     boxes: List[SRTBox] = []
+    width = height = None
+    if frame_shape is not None and len(frame_shape) >= 2:
+        height, width = int(frame_shape[0]), int(frame_shape[1])
 
     for block in blocks:
         lines = [line.strip() for line in block.splitlines() if line.strip()]
@@ -65,8 +71,10 @@ def parse_srt_boxes(srt_path: str | Path) -> List[SRTBox]:
             continue
 
         x1, y1, x2, y2 = numbers[:4]
-        if x1 <= 1 and y1 <= 1 and x2 <= 1 and y2 <= 1:
-            x1, y1, x2, y2 = x1 * 1920, y1 * 1080, x2 * 1920, y2 * 1080
+        if 0.0 <= x1 < x2 <= 1.0 and 0.0 <= y1 < y2 <= 1.0 and not any(value >= 1.0 and int(value) == value for value in (x1, y1, x2, y2)):
+            if width is None or height is None:
+                width, height = 1920, 1080
+            x1, y1, x2, y2 = x1 * width, y1 * height, x2 * width, y2 * height
 
         boxes.append(
             SRTBox(
@@ -106,7 +114,7 @@ def simulate_box_data_for_frame(
         simulated.append(
             {
                 "xyxy": [x1, y1, x2, y2],
-                "confidence": 0.55,
+                "confidence": _SYNTHETIC_CONFIDENCE,
                 "class_id": 0,
                 "label": "synthetic-object",
             }
@@ -116,10 +124,14 @@ def simulate_box_data_for_frame(
 
 
 def export_model(model, export_format: str, imgsz: int = 640, project: str = "runs/export") -> str:
-    """Export a YOLO model to an edge-friendly format."""
-    format_name = export_format.lower()
-    if format_name not in {"onnx", "tflite"}:
-        raise ValueError("export_format must be 'onnx' or 'tflite'")
+    """Export a YOLO model to an edge-friendly format.
 
-    export_path = model.export(format=format_name, imgsz=imgsz, project=project)
+    Supported values: 'onnx', 'tflite', and 'litert' (the LiteRT alias used by Ultralytics).
+    """
+    format_name = export_format.lower()
+    format_aliases = {"onnx": "onnx", "tflite": "litert", "litert": "litert"}
+    if format_name not in format_aliases:
+        raise ValueError("export_format must be 'onnx', 'tflite', or 'litert'")
+
+    export_path = model.export(format=format_aliases[format_name], imgsz=imgsz, project=project)
     return str(export_path)

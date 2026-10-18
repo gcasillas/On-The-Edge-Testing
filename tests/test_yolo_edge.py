@@ -33,4 +33,10 @@ def test_simulate_box_data_for_frame() -> None:
     assert simulated[0]["confidence"] > 0.0
     assert len(simulated[0]["xyxy"]) == 4
     assert simulated[0]["xyxy"][0] >= 0.0
-    assert simulated[0]["xyxy"][2] <= 300.0
+    assert simulated[0]["xyxy"][0] <= 299.0
+    assert simulated[0]["xyxy"][1] >= 0.0
+    assert simulated[0]["xyxy"][1] <= 199.0
+    assert simulated[0]["xyxy"][2] > simulated[0]["xyxy"][0]
+    assert simulated[0]["xyxy"][3] > simulated[0]["xyxy"][1]
+    assert simulated[0]["xyxy"][2] <= 299.0
+    assert simulated[0]["xyxy"][3] <= 199.0

@@ -1,4 +1,4 @@
-ultralytics
+ultralytics[export]
 opencv-python-headless
 numpy
 matplotlib
