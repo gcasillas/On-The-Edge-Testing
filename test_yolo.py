@@ -59,17 +59,29 @@ def download_sample_asset(url: str, destination: str | Path) -> Path:
     """Download a sample input asset for local inference when network access is available."""
     target = Path(destination)
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.suffix.lower() in {".jpg", ".jpeg", ".png"}:
+    video_suffixes = {".mp4", ".avi", ".mov", ".mkv"}
+    image_suffixes = {".jpg", ".jpeg", ".png"}
+
+    if target.suffix.lower() in image_suffixes:
         try:
             urlretrieve(url, str(target))
             return target
         except URLError:
             return generate_sample_image(target)
 
+    if target.suffix.lower() in video_suffixes:
+        try:
+            urlretrieve(url, str(target))
+            return target
+        except URLError:
+            return generate_sample_video(target)
+
     try:
         urlretrieve(url, str(target))
         return target
     except URLError:
+        if Path(url).suffix.lower() in video_suffixes or target.suffix.lower() in video_suffixes:
+            return generate_sample_video(target.with_suffix(".mp4"))
         fallback = generate_sample_image(target.with_suffix(".jpg"))
         return fallback
 
@@ -137,8 +149,18 @@ def prepare_source(source: str) -> str:
     return str(downloaded)
 
 
+def resolve_srt_input(source: str, srt_path: str | None) -> tuple[str, str | None]:
+    """Allow SRT files to be passed either via --srt or as the main source file."""
+    source_path = Path(source)
+    if srt_path is None and source_path.suffix.lower() == ".srt":
+        fallback_image = generate_sample_image(Path("samples") / "synthetic_scene.jpg")
+        return str(fallback_image), str(source_path)
+    return source, srt_path
+
+
 def run_inference(model_name: str, source: str, conf: float, device: str, srt_path: str | None = None, export_format: str | None = None) -> None:
     """Run a YOLO11 inference pass on a local or remote image/video source."""
+    source, srt_path = resolve_srt_input(source, srt_path)
     try:
         from ultralytics import YOLO
     except ImportError as exc:
