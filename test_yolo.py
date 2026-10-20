@@ -28,6 +28,33 @@ def generate_sample_image(destination: str | Path, width: int = 1280, height: in
     return target
 
 
+def generate_sample_video(destination: str | Path, width: int = 640, height: int = 360, fps: int = 12, seconds: int = 4) -> Path:
+    """Generate a tiny synthetic drone-like clip when no sample video is available."""
+    import cv2
+    import numpy as np
+
+    target = Path(destination)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(target), fourcc, fps, (width, height))
+    if not writer.isOpened():
+        raise RuntimeError(f"Could not create sample video at {target}")
+
+    for frame_index in range(fps * seconds):
+        frame = np.full((height, width, 3), 35, dtype=np.uint8)
+        frame[:, :, 1] = 90
+        offset = int((frame_index / max(1, fps * seconds)) * (width - 240))
+        cv2.rectangle(frame, (120 + offset, 70), (260 + offset, 220), (18, 110, 245), 3)
+        cv2.rectangle(frame, (400 - offset, 120), (560 - offset, 260), (18, 200, 160), 3)
+        cv2.circle(frame, (520, 80 + (frame_index % 60)), 40, (0, 200, 255), 4)
+        cv2.putText(frame, "drone test", (120, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        writer.write(frame)
+
+    writer.release()
+    return target
+
+
 def download_sample_asset(url: str, destination: str | Path) -> Path:
     """Download a sample input asset for local inference when network access is available."""
     target = Path(destination)
@@ -103,7 +130,10 @@ def prepare_source(source: str) -> str:
     try:
         downloaded = download_sample_asset(source, sample_path)
     except Exception:
-        downloaded = generate_sample_image(sample_path.with_suffix(".jpg"))
+        if sample_path.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv"}:
+            downloaded = generate_sample_video(sample_path)
+        else:
+            downloaded = generate_sample_image(sample_path.with_suffix(".jpg"))
     return str(downloaded)
 
 
@@ -122,23 +152,35 @@ def run_inference(model_name: str, source: str, conf: float, device: str, srt_pa
         return
 
     local_source = prepare_source(source)
+    source_path = Path(local_source)
 
     if srt_path:
         srt_boxes = parse_srt_boxes(srt_path)
-        if local_source.lower().endswith((".mp4", ".avi", ".mov")):
-            build_demo_video(Path(local_source), srt_boxes=srt_boxes, output_path=Path("demo_output.mp4"))
+        if source_path.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv"}:
+            build_demo_video(source_path, srt_boxes=srt_boxes, output_path=Path("demo_output.mp4"))
             print(f"Synthetic SRT demo saved to demo_output.mp4 using {len(srt_boxes)} boxes.")
             return
         if srt_boxes:
             print(f"Loaded {len(srt_boxes)} synthetic SRT boxes for image simulation.")
+
+    output = Path("runs/detect")
+    output.mkdir(parents=True, exist_ok=True)
+    is_video = source_path.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv"}
+
+    if is_video:
+        model(local_source, conf=conf, device=device, save=True)
+        annotated_path = output / "annotated_video.mp4"
+        if annotated_path.exists():
+            print(f"Video inference complete! Annotated results saved to {annotated_path}.")
+        else:
+            print(f"Video inference completed; output saved to runs/detect.")
+        return
 
     results = model(local_source, conf=conf, device=device)
     if not results:
         print(f"No detections produced for {local_source}.")
         return
 
-    output = Path("runs/detect")
-    output.mkdir(parents=True, exist_ok=True)
     results[0].save(filename=str(output / "result.jpg"))
     print(f"Detection complete! Check {output / 'result.jpg'}.")
 
