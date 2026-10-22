@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import warnings
 from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlparse
@@ -158,8 +159,12 @@ def resolve_srt_input(source: str, srt_path: str | None) -> tuple[str, str | Non
     return source, srt_path
 
 
-def run_inference(model_name: str, source: str, conf: float, device: str, srt_path: str | None = None, export_format: str | None = None) -> None:
-    """Run a YOLO11 inference pass on a local or remote image/video source."""
+def run_inference(model_name: str, source: str, conf: float, device: str, srt_path: str | None = None, export_format: str | None = None, save_output: bool = False) -> None:
+    """Run a YOLO11 inference pass on a local or remote image/video source.
+
+    Default behavior avoids writing large annotated outputs to the repo, which can exhaust disk space
+    during long video runs. Set save_output=True only when you explicitly want to persist results.
+    """
     source, srt_path = resolve_srt_input(source, srt_path)
     try:
         from ultralytics import YOLO
@@ -186,25 +191,53 @@ def run_inference(model_name: str, source: str, conf: float, device: str, srt_pa
             print(f"Loaded {len(srt_boxes)} synthetic SRT boxes for image simulation.")
 
     output = Path("runs/detect")
-    output.mkdir(parents=True, exist_ok=True)
+    if save_output:
+        output.mkdir(parents=True, exist_ok=True)
     is_video = source_path.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv"}
 
     if is_video:
-        model(local_source, conf=conf, device=device, save=True)
-        annotated_path = output / "annotated_video.mp4"
-        if annotated_path.exists():
-            print(f"Video inference complete! Annotated results saved to {annotated_path}.")
+        if save_output:
+            model(local_source, conf=conf, device=device, save=True)
+            annotated_path = output / "annotated_video.mp4"
+            if annotated_path.exists():
+                print(f"Video inference complete! Annotated results saved to {annotated_path}.")
+            else:
+                print(f"Video inference completed; output saved to runs/detect.")
+            return
+
+        results = model(local_source, conf=conf, device=device, stream=True, save=False)
+        frame_count = 0
+        for result in results:
+            frame_count += 1
+            if frame_count % 50 == 0:
+                print(f"Processed {frame_count} frames without saving to disk.")
+        if frame_count == 0:
+            warnings.warn(f"{source} produced no frames to process; no output was written to disk.", stacklevel=2)
         else:
-            print(f"Video inference completed; output saved to runs/detect.")
+            print(f"Video inference complete for {local_source} without saving outputs to disk ({frame_count} frames processed).")
         return
 
-    results = model(local_source, conf=conf, device=device)
+    results = model(local_source, conf=conf, device=device, save=False)
     if not results:
         print(f"No detections produced for {local_source}.")
         return
 
-    results[0].save(filename=str(output / "result.jpg"))
-    print(f"Detection complete! Check {output / 'result.jpg'}.")
+    if save_output:
+        output.mkdir(parents=True, exist_ok=True)
+        results[0].save(filename=str(output / "result.jpg"))
+        print(f"Detection complete! Check {output / 'result.jpg'}.")
+        return
+
+    result = results[0]
+    boxes = result.boxes
+    if boxes is None or len(boxes) == 0:
+        print("Detection complete; no boxes were produced without saving to disk.")
+        return
+
+    num_boxes = len(boxes)
+    classes = sorted({int(cls) for cls in boxes.cls})
+    class_summary = ", ".join(map(str, classes)) if classes else "none"
+    print(f"Detection complete; {num_boxes} detections found across classes {class_summary} without saving to disk.")
 
 
 def main() -> None:
@@ -215,6 +248,7 @@ def main() -> None:
     parser.add_argument("--device", default="cpu", help="Device to run on (cpu, 0, or mps)")
     parser.add_argument("--srt", help="Optional path to an SRT file containing synthetic box rectangles")
     parser.add_argument("--export", choices=["onnx", "tflite", "litert"], help="Export the model to an edge-ready format")
+    parser.add_argument("--save-output", action="store_true", help="Persist annotated inference output to runs/detect; disabled by default to avoid disk exhaustion on long videos")
     args = parser.parse_args()
 
     run_inference(
@@ -224,6 +258,7 @@ def main() -> None:
         device=args.device,
         srt_path=args.srt,
         export_format=args.export,
+        save_output=args.save_output,
     )
 
 

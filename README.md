@@ -17,6 +17,9 @@ Quick start
 
    python test_yolo.py --model yolo11n.pt --source https://ultralytics.com/images/bus.jpg --conf 0.25 --device cpu
 
+   # Optional: persist annotated output only when you explicitly want it on disk
+   python test_yolo.py --model yolo11n.pt --source samples/Vehicle_clip2.mp4 --device cpu --save-output
+
 3. Run a synthetic SRT-driven demo by pointing at an SRT file:
 
    python test_yolo.py --model yolo11n.pt --source samples/example.mp4 --srt data/sample_boxes.srt --device cpu
