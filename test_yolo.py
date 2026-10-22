@@ -158,7 +158,16 @@ def resolve_srt_input(source: str, srt_path: str | None) -> tuple[str, str | Non
     return source, srt_path
 
 
-def run_inference(model_name: str, source: str, conf: float, device: str, srt_path: str | None = None, export_format: str | None = None) -> None:
+def run_inference(
+    model_name: str,
+    source: str,
+    conf: float,
+    device: str,
+    srt_path: str | None = None,
+    export_format: str | None = None,
+    save_output: bool = False,
+    classes: list[int] | None = None,
+) -> None:
     """Run a YOLO11 inference pass on a local or remote image/video source."""
     source, srt_path = resolve_srt_input(source, srt_path)
     try:
@@ -190,15 +199,18 @@ def run_inference(model_name: str, source: str, conf: float, device: str, srt_pa
     is_video = source_path.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv"}
 
     if is_video:
-        model(local_source, conf=conf, device=device, save=True)
-        annotated_path = output / "annotated_video.mp4"
-        if annotated_path.exists():
-            print(f"Video inference complete! Annotated results saved to {annotated_path}.")
+        model(local_source, conf=conf, device=device, save=save_output, classes=classes)
+        if save_output:
+            annotated_path = output / "annotated_video.mp4"
+            if annotated_path.exists():
+                print(f"Video inference complete! Annotated results saved to {annotated_path}.")
+            else:
+                print(f"Video inference completed; output saved to runs/detect.")
         else:
-            print(f"Video inference completed; output saved to runs/detect.")
+            print("Video inference complete without saving an output file.")
         return
 
-    results = model(local_source, conf=conf, device=device)
+    results = model(local_source, conf=conf, device=device, classes=classes)
     if not results:
         print(f"No detections produced for {local_source}.")
         return
@@ -215,6 +227,17 @@ def main() -> None:
     parser.add_argument("--device", default="cpu", help="Device to run on (cpu, 0, or mps)")
     parser.add_argument("--srt", help="Optional path to an SRT file containing synthetic box rectangles")
     parser.add_argument("--export", choices=["onnx", "tflite", "litert"], help="Export the model to an edge-ready format")
+    parser.add_argument(
+        "--save-output",
+        action="store_true",
+        help="Save the rendered output video to disk",
+    )
+    parser.add_argument(
+        "--classes",
+        nargs="+",
+        type=int,
+        help="Filter detections by class IDs (e.g., 2 for car, 5 for bus, 7 for truck)",
+    )
     args = parser.parse_args()
 
     run_inference(
@@ -224,6 +247,8 @@ def main() -> None:
         device=args.device,
         srt_path=args.srt,
         export_format=args.export,
+        save_output=args.save_output,
+        classes=args.classes,
     )
 
 
