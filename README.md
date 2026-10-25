@@ -7,6 +7,8 @@ This project sets up a lightweight Ultralytics YOLO11 workflow for edge-testing 
 - A sample inference script that can use a local or remote image/video
 - Export helpers for edge-targeted formats such as ONNX and TFLite
 
+![YOLO Edge Detection Demo](./data/edgeYolo.gif)
+
 Quick start
 
 1. Install dependencies:
